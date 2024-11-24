@@ -11,8 +11,9 @@ from ollama import AsyncClient
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-MODEL = "llama3.2:3b-instruct-fp16"
 router = APIRouter()
+
+MODEL = settings.ollama_model
 
 
 # Models

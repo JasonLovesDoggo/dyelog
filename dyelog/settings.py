@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     # Enable uvicorn reloading
     reload: bool = False
     ollama_host: str = "http://host.docker.internal:11434"
+    ollama_model: str = "llama3.2:3b-instruct-fp16"
 
     # Current environment
     environment: str = "dev"
