@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import UJSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
@@ -45,6 +46,13 @@ def get_app() -> FastAPI:
             print(traceback.format_exc())
             raise e
 
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.middleware("http")(catch_exceptions_middleware)
     # Main router for the API.
     app.include_router(router=api_router, prefix="/api")
