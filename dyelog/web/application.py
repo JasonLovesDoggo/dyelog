@@ -1,9 +1,15 @@
+from __future__ import annotations
+
+import traceback
 from importlib import metadata
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.responses import UJSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.requests import Request
+from starlette.responses import Response
 
 from dyelog.web.api.router import api_router
 from dyelog.web.lifespan import lifespan_setup
@@ -29,6 +35,17 @@ def get_app() -> FastAPI:
         default_response_class=UJSONResponse,
     )
 
+    async def catch_exceptions_middleware(
+        request: Request,
+        call_next: Any,
+    ) -> Exception | Response:
+        try:
+            return await call_next(request)
+        except Exception as e:
+            print(traceback.format_exc())
+            raise e
+
+    app.middleware("http")(catch_exceptions_middleware)
     # Main router for the API.
     app.include_router(router=api_router, prefix="/api")
     # Adds static directory.

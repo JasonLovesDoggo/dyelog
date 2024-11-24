@@ -21,8 +21,8 @@ services:
       - traefik-shared
     environment:
       DYELOG_HOST: 0.0.0.0
-
-
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 networks:
   # Network for traefik.

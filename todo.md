@@ -1,0 +1,4 @@
+- Given context & N letter ranges, generate 4 words that match the pattern and are at least N letters long
+  - Happens on every change in range or context
+- Given a sentence (or single word (i.e. first word in the sentance)) come up with an array of 4 full proper sentences that fully cover the prompt. I.e. if the context is "What do you want to eat?" And the prompt is "Pizza" then the sentences could be "I want to eat pizza." or "I don't want to eat pizza." or "I'm not sure what to eat.". Keep variaty 
+- Given a sentence, return that as a mp3 file. 
