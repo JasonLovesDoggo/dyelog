@@ -225,7 +225,8 @@ Sentences:
 - Tired, I need some rest.
 - Could we talk later? I'm tired.
 
-Return only the sentences, one per line. If unsure, return nothing."""
+Return __only__ the sentences, one per line.
+Do not add "Here is the sentence:" or anything else. If unsure, return nothing."""
 
     try:
         response = await client.chat(
