@@ -517,6 +517,26 @@ reauth = ["pyu2f (>=0.1.5)"]
 requests = ["requests (>=2.20.0,<3.0.0.dev0)"]
 
 [[package]]
+name = "google-cloud-speech"
+version = "2.28.1"
+description = "Google Cloud Speech API client library"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "google_cloud_speech-2.28.1-py2.py3-none-any.whl", hash = "sha256:b7f06101ea948b82453ac8fdf32505cc48a191bd9f53b7b2259a4f8a1f914cc3"},
+    {file = "google_cloud_speech-2.28.1.tar.gz", hash = "sha256:8466190bb3d41fa620ec2cedc3d17c6dbe8030c0ed6d69ffc1270c47881c5524"},
+]
+
+[package.dependencies]
+google-api-core = {version = ">=1.34.1,<2.0.dev0 || >=2.11.dev0,<3.0.0dev", extras = ["grpc"]}
+google-auth = ">=2.14.1,<2.24.0 || >2.24.0,<2.25.0 || >2.25.0,<3.0.0dev"
+proto-plus = [
+    {version = ">=1.25.0,<2.0.0dev", markers = "python_version >= \"3.13\""},
+    {version = ">=1.22.3,<2.0.0dev", markers = "python_version < \"3.13\""},
+]
+protobuf = ">=3.20.2,<4.21.0 || >4.21.0,<4.21.1 || >4.21.1,<4.21.2 || >4.21.2,<4.21.3 || >4.21.3,<4.21.4 || >4.21.4,<4.21.5 || >4.21.5,<6.0.0dev"
+
+[[package]]
 name = "google-cloud-texttospeech"
 version = "2.21.1"
 description = "Google Cloud Texttospeech API client library"
@@ -2397,4 +2417,4 @@ propcache = ">=0.2.0"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "d5642a18f38856af39111bb4c4e037ebb59ba1aaa6f1ef377beedcb4f3d8dcbd"
+content-hash = "f2e0200f878876e56924ea7dd2f7125a6a45c21dc7ee188bbb44ff9aeaec9f0e"
