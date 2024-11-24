@@ -1,81 +1,131 @@
-from __future__ import annotations
-
+import logging
 import string
-from typing import Dict, List
+from typing import ClassVar, List, Optional
 
 from fastapi import APIRouter, HTTPException
-from fastapi.logger import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from dyelog.settings import settings
 from ollama import AsyncClient
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+MODEL = "llama3.2:3b-instruct-fp16"
+router = APIRouter()
+
 
 # Models
 class ChatInput(BaseModel):
-    """Chat input model."""
+    """Input model for chat requests."""
 
-    letter_ranges: str  # e.g. "N-T G-M U-Z U-Z A-F"
-    context: str
+    letter_ranges: str = Field(  # type: ignore
+        ...,
+        description="Letter ranges in format 'A-C D-F G-I'. "
+        "Each range represents a position in the word.",
+        example="N-T G-M U-Z U-Z A-F",
+    )
+    context: str = Field(  # type: ignore
+        ...,
+        description="The conversational context or question being answered",
+        example="What would you like to eat?",
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "letter_ranges": "N-T G-M U-Z U-Z A-F",
+                "context": "What would you like to eat?",
+            },
+        }
 
 
 class PromptOption(BaseModel):
-    """Prompt option model."""
+    """Model for word suggestions."""
 
     id: int
     prompt: str
 
 
 class ChatResponse(BaseModel):
-    """Chat response model."""
+    """Response model containing word options and generated sentences."""
 
     prompt_options: List[PromptOption]
     sentences: List[str]
 
+    class Config:
+        json_schema_extra: ClassVar = {
+            "example": {
+                "prompt_options": [
+                    {"id": 0, "prompt": "PIZZA"},
+                    {"id": 1, "prompt": "PASTA"},
+                    {"id": 2, "prompt": "SALAD"},
+                ],
+                "sentences": [
+                    "I would like to eat pizza for dinner.",
+                    "Can we order a pizza tonight?",
+                    "Pizza sounds perfect right now.",
+                    "I'm craving a hot pizza with extra cheese.",
+                ],
+            },
+        }
 
-class WordSelection(BaseModel):
-    """Selected word model."""
 
-    selected_word: str
+class WordSelector(BaseModel):
+    """Model for word selection."""
+
+    word: str = Field(..., example="PIZZA")  # type: ignore
+    context: str = Field(..., example="What would you like to eat?")  # type: ignore
 
 
-# Global session state
-session_words: List[str] = []
-session_context: List[str] = []
+# Initialize FastAPI and Ollama client
 
-# Initialize Ollama client
 client = AsyncClient(host=settings.ollama_host)
-
-router = APIRouter()
 
 
 def parse_letter_ranges(ranges_str: str) -> List[set[str]]:
-    """Convert letter ranges string to sets of allowed letters."""
+    """
+    Parse letter ranges string into sets of allowed letters.
+
+    Args:
+        ranges_str (str): Space-separated letter ranges (e.g., "A-C D-F")
+
+    Returns:
+        List[set[str]]: List of sets containing allowed letters for each position
+
+    Example:
+        >>> parse_letter_ranges("A-C D-F")
+        [{A,B,C}, {D,E,F}]
+    """
     letter_sets = []
-    ranges = ranges_str.split()
+    ranges = ranges_str.upper().split()
 
     for range_str in ranges:
         if "-" not in range_str:
-            letter_sets.append({range_str.upper()})
+            letter_sets.append({range_str})
             continue
 
         start, end = range_str.split("-")
-        letters = set(
-            string.ascii_uppercase[
-                string.ascii_uppercase.index(
-                    start.upper(),
-                ) : string.ascii_uppercase.index(end.upper())
-                + 1
-            ],
-        )
+        start_idx = string.ascii_uppercase.index(start)
+        end_idx = string.ascii_uppercase.index(end)
+        letters = set(string.ascii_uppercase[start_idx : end_idx + 1])
         letter_sets.append(letters)
 
     return letter_sets
 
 
-def word_matches_pattern(word: str, letter_sets: List[set[str]]) -> bool:
-    """Check if a word matches the letter pattern."""
-    if len(word) < len(letter_sets):
+def validate_word(word: str, letter_sets: List[set[str]]) -> bool:
+    """
+    Validate if a word matches the letter pattern requirements.
+
+    Args:
+        word (str): Word to validate
+        letter_sets (List[set[str]]): List of sets containing allowed letters
+
+    Returns:
+        bool: True if word matches pattern, False otherwise
+    """
+    if not word or len(word) < len(letter_sets):
         return False
 
     return all(
@@ -83,92 +133,160 @@ def word_matches_pattern(word: str, letter_sets: List[set[str]]) -> bool:
     )
 
 
-async def generate_word_options(letter_ranges: str) -> List[str]:
-    """Generate possible words matching the letter patterns using LLM."""
+async def generate_words(
+    context: str,
+    letter_ranges: str,
+    min_length: Optional[int] = None,
+) -> List[str]:
+    """Generate words matching the letter pattern using Ollama."""
     letter_sets = parse_letter_ranges(letter_ranges)
-    pattern_description = " ".join(
-        f"[{''.join(sorted(letter_set))}]" for letter_set in letter_sets
-    )
-    logger.debug(f"pattern_description={pattern_description}")
+    min_length = min_length or len(letter_sets)
 
-    prompt = f"""
-Generate 4 common English words that use the letters from the following pattern: {letter_ranges}
-    Each position can only use letters from its corresponding bracket.
-    Remember to ensure that the word is at least {len(letter_sets)} letters long.
-    Return only the words, one per line, nothing else.
-For example, if the pattern is N-T G-M U-Z U-Z A-F then,
-the words could be: Pizza .
-"""
-    logger.debug(f"prompt={prompt}")
-    message = {"role": "user", "content": prompt}
+    pattern_desc = " ".join(f"[{''.join(sorted(s))}]" for s in letter_sets)
+    prompt = f"""You are helping generate words for someone with ALS to communicate.
+Generate 1-4 common English words that match this pattern: {pattern_desc}.
+The context surrounding this response is: {context}
+
+Requirements:
+1. Words must be at least {min_length} letters long
+2. Each letter must match its position's allowed letters
+3. Words must be common and useful for everyday communication
+4. Words should be appropriate for the context
+
+__Example__ patterns and valid words:
+Pattern: [NOPQRST] [GHIJKLM] [UVWXYZ] [UVWXYZ] [ABCDEF]
+Valid: PIZZA
+
+Pattern: [ABC] [DEF] [GHI] [JKL]
+Valid: BEAK
+
+Pattern: [WXYZ] [ABCD] [NOPQ] [TUVW]
+Valid: WANT
+
+Do not return responses for the example patterns.
+
+Return only valid words, one per line. If unsure, return nothing."""
 
     try:
         response = await client.chat(
-            model="llama3.2",
-            messages=[message],
+            model=MODEL,  # Using llama3.2 instruct model
+            messages=[{"role": "user", "content": prompt}],
             stream=False,
-        )  # Get the full response at once
-        response_text = response["message"]["content"]
-        print(f"response_text={response_text}")
-        words = [
-            word.strip().upper()
-            for word in response_text.split("\n")
-            if word.strip() and word_matches_pattern(word.strip(), letter_sets)
-        ]
-        print(f"{words=}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error generating words: {e!s}")
+        )
+        print(response["message"]["content"])
 
-    return words[:4]
+        return [
+            word.strip().upper()
+            for word in response["message"]["content"].split("\n")
+            if word.strip() and validate_word(word.strip(), letter_sets)
+        ]
+
+    except Exception as e:
+        logger.error(f"Error generating words: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate words")
 
 
 async def generate_sentences(word: str, context: str) -> List[str]:
-    """Generate sentences incorporating the word and context."""
-    prompt = f"""Generate 4 natural, grammatically correct sentences that:
-    1. Use the word "{word}"
-    2. Relate to the context: "{context}"
-    3. Are appropriate for someone trying to communicate their needs/thoughts
-    4. Are clear and concise
-    Return only the sentences, one per line, nothing else."""
+    """Generate contextually appropriate sentences using the selected word."""
+    prompt = f"""You are helping generate natural sentences for someone with ALS to communicate.
 
-    message = {"role": "user", "content": prompt}
-    sentences = []
-    combined_response = ""
+Generate 1-4 conversational sentences that:
+1. Use the word "{word}"
+2. Are appropriate responses to: "{context}"
+3. Vary in structure and tone
+4. Are clear and direct
+5. Sound natural in conversation
+
+Examples:
+Context: "What would you like to eat?"
+Word: "PIZZA"
+Sentences:
+- I would like to eat pizza.
+- Can we order pizza tonight?
+- Pizza sounds perfect right now.
+
+Context: "How are you feeling?"
+Word: "TIRED"
+Sentences:
+- I'm feeling tired today.
+- Tired, I need some rest.
+- Could we talk later? I'm tired.
+
+Return only the sentences, one per line. If unsure, return nothing."""
 
     try:
-        async for part in await client.chat(
-            model="llama3.2",
-            messages=[message],
-            stream=True,
-        ):
-            combined_response += part["message"]["content"]
-            current_sentences = [
-                sent.strip() for sent in combined_response.split("\n") if sent.strip()
-            ]
-            sentences = current_sentences
-            if len(sentences) >= 4:
-                break
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error generating sentences: {e!s}",
+        response = await client.chat(
+            model=MODEL,  # Using llama3.2 instruct model
+            messages=[{"role": "user", "content": prompt}],
+            stream=False,
         )
 
-    return sentences[:4]
+        return [
+            sent.strip()
+            for sent in response["message"]["content"].split("\n")
+            if sent.strip() and not sent.startswith("-")  # Filter out any bullet points
+        ]
+
+    except Exception as e:
+        logger.error(f"Error generating sentences: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate sentences")
 
 
-@router.post("/predict", response_model=ChatResponse)
-async def predict_words(incoming_message: ChatInput) -> ChatResponse:
-    """Predict words based on letter ranges and generate corresponding sentences."""
+@router.post("/predict", response_model=ChatResponse, tags=["prediction"])
+async def predict(input: ChatInput) -> ChatResponse:
+    """
+    Generate word predictions and example sentences based on letter ranges and context.
+
+    Args:
+        input (ChatInput): Contains letter_ranges and context
+            - letter_ranges: String of letter ranges (e.g., "N-T G-M U-Z U-Z A-F")
+            - context: Conversational context or question
+
+    Returns:
+        ChatResponse: Contains word options and example sentences
+            - prompt_options: List of suggested words matching the pattern
+            - sentences: List of example sentences using the first suggested word
+
+    Examples:
+        Request:
+        ```json
+        {
+            "letter_ranges": "N-T G-M U-Z U-Z A-F",
+            "context": "What would you like to eat?"
+        }
+        ```
+
+        Response:
+        ```json
+        {
+            "prompt_options": [
+                {"id": 0, "prompt": "PIZZA"},
+                {"id": 1, "prompt": "PASTA"}
+            ],
+            "sentences": [
+                "I would like to eat pizza.",
+                "Can we order pizza tonight?",
+                "Pizza sounds perfect right now."
+            ]
+        }
+        ```
+
+    Raises:
+        HTTPException(404): If no matching words are found
+        HTTPException(500): If word or sentence generation fails
+    """
     try:
-        words = await generate_word_options(incoming_message.letter_ranges)
-        logger.info(f"Generated word options: {words}")
-
+        # Generate matching words
+        words = await generate_words(
+            input.context,
+            input.letter_ranges,
+            min_length=len(input.letter_ranges),
+        )
         if not words:
-            raise HTTPException(status_code=404, detail="No matching words found")
+            return ChatResponse(prompt_options=[], sentences=[])
 
-        # Generate sentences for the first word prediction
-        sentences = await generate_sentences(words[0], incoming_message.context)
+        # Generate sentences using the first word
+        sentences = await generate_sentences(words[0], input.context)
 
         return ChatResponse(
             prompt_options=[
@@ -176,30 +294,23 @@ async def predict_words(incoming_message: ChatInput) -> ChatResponse:
             ],
             sentences=sentences,
         )
+
     except Exception as e:
-        print(f"{e=}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error in predict endpoint: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate predictions",
+        )
 
 
-@router.post("/select-word")
-async def select_word(selection: WordSelection) -> Dict[str, List[str] | str]:
-    """Add selected word to session context."""
-    session_words.append(selection.selected_word)
-    return {"status": "success", "session_words": session_words}
-
-
-@router.get("/session")
-async def get_session() -> Dict[str, List[str]]:
-    """Get current session state."""
-    return {
-        "words": session_words,
-        "context": session_context,
-    }
-
-
-@router.post("/clear-session")
-async def clear_session() -> Dict[str, str]:
-    """Clear session state."""
-    session_words.clear()
-    session_context.clear()
-    return {"status": "success"}
+@router.post("/sentences", tags=["sentences"])
+async def get_sentences(selector: WordSelector) -> List[str]:
+    """Generate new sentences for a selected word and context."""
+    try:
+        return await generate_sentences(selector.word, selector.context)
+    except Exception as e:
+        logger.error(f"Error generating sentences: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate sentences",
+        )

@@ -113,7 +113,9 @@ lint.ignore = [
     "PLR0913", # Too many arguments for function call
     "D106",    # Missing docstring in public nested class
     "B904",    # Within an except clause, raise exceptions with 'from' clauses
-    "D101"
+    "D101",    # Missing docstring in public class
+    "D200",   # One-line docstring should fit on one line with quotes
+    "RUF012", # Mutable class attributes should be annotated with typing.ClassVar
 ]
 exclude = [
     ".venv/"
