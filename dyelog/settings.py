@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     environment: str = "dev"
 
     log_level: LogLevel = LogLevel.DEBUG
-
+    words_file: Path = Path("data/words_alpha.txt")
     # This variable is used to define
     # multiproc_dir. It's required for [uvi|guni]corn projects.
     prometheus_dir: Path = TEMP_DIR / "prom"

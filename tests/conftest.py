@@ -25,7 +25,7 @@ def fastapi_app() -> FastAPI:
     :return: fastapi app with mocked dependencies.
     """
     application = get_app()
-    return application  # noqa: RET504
+    return application
 
 
 @pytest.fixture

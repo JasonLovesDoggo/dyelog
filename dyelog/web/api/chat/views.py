@@ -1,11 +1,12 @@
 import logging
 import string
-from typing import ClassVar, List, Optional
+from typing import ClassVar, List, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from dyelog.settings import settings
+from dyelog.utils import PatternMatcher
 from ollama import AsyncClient
 
 # Configure logging
@@ -14,6 +15,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 MODEL = settings.ollama_model
+
+matcher = PatternMatcher()
 
 
 # Models
@@ -42,10 +45,11 @@ class ChatInput(BaseModel):
 
 
 class PromptOption(BaseModel):
-    """Model for word suggestions."""
+    """Enhanced model for word suggestions with confidence score."""
 
     id: int
     prompt: str
+    confidence: float
 
 
 class ChatResponse(BaseModel):
@@ -115,72 +119,80 @@ def parse_letter_ranges(ranges_str: str) -> List[set[str]]:
     return letter_sets
 
 
-def validate_word(word: str, letter_sets: List[set[str]]) -> bool:
+async def score_words(words: List[str], context: str) -> List[Tuple[str, float]]:
     """
-    Validate if a word matches the letter pattern requirements.
+    Score words based on their relevance to the context using llama3.2.
 
-    Args:
-        word (str): Word to validate
-        letter_sets (List[set[str]]): List of sets containing allowed letters
-
-    Returns:
-        bool: True if word matches pattern, False otherwise
+    Returns list of (word, confidence) tuples.
     """
-    if not word or len(word) < len(letter_sets):
-        return False
+    if not words:
+        return []
 
-    return all(
-        letter.upper() in letter_set for letter, letter_set in zip(word, letter_sets)
-    )
+    prompt = f"""You are helping score words for someone with ALS to communicate.
+Given the context: "{context}"
+
+Please rate how appropriate and relevant each of these words is for the context:
+{', '.join(words)}
+
+For each word, return a single line with the format:
+WORD:CONFIDENCE_SCORE
+
+Where CONFIDENCE_SCORE is a number between 0 and 100 representing how appropriate
+and relevant the word is for the given context.
+
+Example output format:
+PIZZA:85.5
+PASTA:72.3
+
+Only return the word:score pairs, one per line. Nothing else."""
+
+    try:
+        response = await client.chat(
+            model=MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            stream=False,
+        )
+
+        scored_words = []
+        for line in response["message"]["content"].split("\n"):
+            if ":" in line:
+                word, score_str = line.strip().split(":")
+                try:
+                    score = float(score_str)
+                    if score >= 30.0:  # Only include words with confidence >= 30%
+                        scored_words.append((word.strip(), score))
+                except ValueError:
+                    continue
+
+        return sorted(scored_words, key=lambda x: x[1], reverse=True)
+    except Exception as e:
+        logger.error(f"Error scoring words: {e}")
+        return [(word, 60.0) for word in words]  # Fallback scoring
 
 
 async def generate_words(
     context: str,
     letter_ranges: str,
     min_length: Optional[int] = None,
-) -> List[str]:
-    """Generate words matching the letter pattern using Ollama."""
-    letter_sets = parse_letter_ranges(letter_ranges)
-    min_length = min_length or len(letter_sets)
-
-    pattern_desc = " ".join(f"[{''.join(sorted(s))}]" for s in letter_sets)
-    prompt = f"""You are helping generate words for someone with ALS to communicate.
-Generate 1-4 common English words that match this pattern: {pattern_desc}.
-The context surrounding this response is: {context}
-
-Requirements:
-1. Words must be at least {min_length} letters long
-2. Each letter must match its position's allowed letters
-3. Words must be common and useful for everyday communication
-4. Words should be appropriate for the context
-
-__Example__ patterns and valid words:
-Pattern: [NOPQRST] [GHIJKLM] [UVWXYZ] [UVWXYZ] [ABCDEF]
-Valid: PIZZA
-
-Pattern: [ABC] [DEF] [GHI] [JKL]
-Valid: BEAK
-
-Pattern: [WXYZ] [ABCD] [NOPQ] [TUVW]
-Valid: WANT
-
-Do not return responses for the example patterns.
-
-Return only valid words, one per line. If unsure, return nothing."""
-
+) -> List[Tuple[str, float]]:
+    """Generate and score words matching the letter pattern using PatternMatcher and llama3.2."""
     try:
-        response = await client.chat(
-            model=MODEL,  # Using llama3.2 instruct model
-            messages=[{"role": "user", "content": prompt}],
-            stream=False,
-        )
-        print(response["message"]["content"])
+        # Initialize PatternMatcher
 
-        return [
-            word.strip().upper()
-            for word in response["message"]["content"].split("\n")
-            if word.strip() and validate_word(word.strip(), letter_sets)
-        ]
+        # Convert letter ranges to pattern format
+        pattern = letter_ranges.upper()
+
+        # Get matching words
+        matching_words = matcher.find_matches(pattern)
+        print(f"Found {len(matching_words)} matching words ")
+        print(f"{matching_words=}")
+        if not matching_words:
+            return []
+
+        # Score and sort the matching words
+        scored_words = await score_words(matching_words, context)
+
+        return scored_words
 
     except Exception as e:
         logger.error(f"Error generating words: {e}")
@@ -238,61 +250,30 @@ async def predict(input: ChatInput) -> ChatResponse:
     """
     Generate word predictions and example sentences based on letter ranges and context.
 
-    Args:
-        input (ChatInput): Contains letter_ranges and context
-            - letter_ranges: String of letter ranges (e.g., "N-T G-M U-Z U-Z A-F")
-            - context: Conversational context or question
-
-    Returns:
-        ChatResponse: Contains word options and example sentences
-            - prompt_options: List of suggested words matching the pattern
-            - sentences: List of example sentences using the first suggested word
-
-    Examples:
-        Request:
-        ```json
-        {
-            "letter_ranges": "N-T G-M U-Z U-Z A-F",
-            "context": "What would you like to eat?"
-        }
-        ```
-
-        Response:
-        ```json
-        {
-            "prompt_options": [
-                {"id": 0, "prompt": "PIZZA"},
-                {"id": 1, "prompt": "PASTA"}
-            ],
-            "sentences": [
-                "I would like to eat pizza.",
-                "Can we order pizza tonight?",
-                "Pizza sounds perfect right now."
-            ]
-        }
-        ```
-
-    Raises:
-        HTTPException(404): If no matching words are found
-        HTTPException(500): If word or sentence generation fails
+    Now includes confidence scores for each word.
     """
     try:
-        # Generate matching words
-        words = await generate_words(
+        # Generate and score matching words
+        scored_words = await generate_words(
             input.context,
             input.letter_ranges,
-            min_length=len(input.letter_ranges),
+            min_length=len(input.letter_ranges.split()),
         )
-        if not words:
+
+        if not scored_words:
             return ChatResponse(prompt_options=[], sentences=[])
 
-        # Generate sentences using the first word
-        sentences = await generate_sentences(words[0], input.context)
+        # Create prompt options with confidence scores
+        prompt_options = [
+            PromptOption(id=i, prompt=word, confidence=score)
+            for i, (word, score) in enumerate(scored_words)
+        ]
+
+        # Generate sentences using the highest confidence word
+        sentences = await generate_sentences(scored_words[0][0], input.context)
 
         return ChatResponse(
-            prompt_options=[
-                PromptOption(id=i, prompt=word) for i, word in enumerate(words)
-            ],
+            prompt_options=prompt_options,
             sentences=sentences,
         )
 

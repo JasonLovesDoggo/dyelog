@@ -26,6 +26,7 @@ prometheus-fastapi-instrumentator = "7.0.0"
 ollama = "^0.4.0"
 google-cloud-texttospeech = "^2.21.1"
 google-cloud-speech = "^2.28.1"
+python-multipart = "^0.0.17"
 
 
 [tool.poetry.group.dev.dependencies]
@@ -56,6 +57,11 @@ allow_untyped_decorators = true
 warn_unused_ignores = false
 warn_return_any = false
 namespace_packages = true
+
+[tool.ruff.per-file-ignores]
+"tests/*" = [
+    "S101", # Use of assert detected
+]
 
 [tool.pytest.ini_options]
 filterwarnings = [
@@ -117,9 +123,12 @@ lint.ignore = [
     "D101",    # Missing docstring in public class
     "D200",   # One-line docstring should fit on one line with quotes
     "RUF012", # Mutable class attributes should be annotated with typing.ClassVar
+    "RET504", # Unnecessary variable assignment before return statement
+    "ERA001", # Found commented-out code
 ]
 exclude = [
-    ".venv/"
+    ".venv/",
+    "tests/test_words.py"
 ]
 lint.mccabe = { max-complexity = 10 }
 line-length = 101
