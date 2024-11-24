@@ -23,9 +23,9 @@ services:
       - traefik-shared
     environment:
       DYELOG_HOST: 0.0.0.0
+
       GOOGLE_APPLICATION_CREDENTIALS: /creds.json
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    network_mode: host
 
 networks:
   # Network for traefik.
