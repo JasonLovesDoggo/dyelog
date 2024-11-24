@@ -9,6 +9,8 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    volumes:
+      - /home/ubuntu/.config/gcloud/application_default_credentials.json:/creds.json
     labels:
       # Enables traefik for this container.
       - traefik.enable=true
@@ -21,6 +23,7 @@ services:
       - traefik-shared
     environment:
       DYELOG_HOST: 0.0.0.0
+      GOOGLE_APPLICATION_CREDENTIALS: /credentials/creds.json
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
