@@ -18,16 +18,8 @@ services:
       - traefik.http.routers.dyelog.entrypoints=http
       - traefik.http.routers.dyelog.service=dyelog
       - traefik.http.services.dyelog.loadbalancer.server.port=${DYELOG_PORT:-8000}
-    networks:
-      - default
-      - traefik-shared
     environment:
       DYELOG_HOST: 0.0.0.0
 
       GOOGLE_APPLICATION_CREDENTIALS: /creds.json
     network_mode: host
-
-networks:
-  # Network for traefik.
-  traefik-shared:
-    name: traefik-shared
