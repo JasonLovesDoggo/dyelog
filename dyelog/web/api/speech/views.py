@@ -2,7 +2,6 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from google.cloud import speech, texttospeech
 from starlette.responses import Response
 
-from dyelog.settings import settings
 from dyelog.web.api.speech.schema import SpeechToTextResponse, TextToSpeechInput
 
 router = APIRouter()
@@ -11,15 +10,36 @@ tts_client = texttospeech.TextToSpeechClient()
 stt_client = speech.SpeechClient()
 
 
+def get_voice(voice: str) -> int:
+    """Get the voice object based on the voice name."""
+    if voice == "FEMALE":
+        return texttospeech.SsmlVoiceGender.FEMALE
+    elif voice == "MALE":  # noqa: RET505
+        return texttospeech.SsmlVoiceGender.MALE
+    elif voice == "NEUTRAL":
+        return texttospeech.SsmlVoiceGender.NEUTRAL
+    elif voice == "UNKNOWN":
+        return texttospeech.SsmlVoiceGender.SSML_VOICE_GENDER_UNSPECIFIED
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid voice name: {voice}",
+        )
+
+
 @router.post("/synthesize-speech")
-async def synthesize_speech(input_data: TextToSpeechInput) -> Response:
+async def synthesize_speech(
+    input_data: TextToSpeechInput,
+    voice: str = "FEMALE",
+) -> Response:
     """Synthesizes speech from the input text and returns an audio file."""
+    voice_code: int = get_voice(voice)
     try:
         # Create a synthesis request
         synthesis_input = texttospeech.SynthesisInput(text=input_data.text)
         voice = texttospeech.VoiceSelectionParams(
             language_code="en-US",
-            ssml_gender=settings.voice,
+            ssml_gender=voice_code,
         )
         audio_config = texttospeech.AudioConfig(
             audio_encoding=texttospeech.AudioEncoding.MP3,
