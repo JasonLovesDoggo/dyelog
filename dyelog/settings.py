@@ -32,11 +32,12 @@ class Settings(BaseSettings):
     workers_count: int = 1
     # Enable uvicorn reloading
     reload: bool = False
+    ollama_host: str = "http://host.docker.internal:11434"
 
     # Current environment
     environment: str = "dev"
 
-    log_level: LogLevel = LogLevel.INFO
+    log_level: LogLevel = LogLevel.DEBUG
 
     # This variable is used to define
     # multiproc_dir. It's required for [uvi|guni]corn projects.
