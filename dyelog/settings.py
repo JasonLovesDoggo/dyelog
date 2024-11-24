@@ -2,6 +2,7 @@ import enum
 from pathlib import Path
 from tempfile import gettempdir
 
+from google.cloud import texttospeech
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 TEMP_DIR = Path(gettempdir())
@@ -34,7 +35,7 @@ class Settings(BaseSettings):
     reload: bool = False
     ollama_host: str = "http://127.0.0.1:11434"
     ollama_model: str = "llama3.2:3b-instruct-fp16"
-
+    voice: int = texttospeech.SsmlVoiceGender.SSML_VOICE_GENDER_UNSPECIFIED
     # Current environment
     environment: str = "dev"
 

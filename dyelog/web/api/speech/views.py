@@ -2,15 +2,13 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from google.cloud import speech, texttospeech
 from starlette.responses import Response
 
+from dyelog.settings import settings
 from dyelog.web.api.speech.schema import SpeechToTextResponse, TextToSpeechInput
 
 router = APIRouter()
 # Initialize the Text-to-Speech tts_client
 tts_client = texttospeech.TextToSpeechClient()
 stt_client = speech.SpeechClient()
-VOICE: texttospeech.SsmlVoiceGender = (
-    texttospeech.SsmlVoiceGender.SSML_VOICE_GENDER_UNSPECIFIED  # type: ignore
-)
 
 
 @router.post("/synthesize-speech")
@@ -21,7 +19,7 @@ async def synthesize_speech(input_data: TextToSpeechInput) -> Response:
         synthesis_input = texttospeech.SynthesisInput(text=input_data.text)
         voice = texttospeech.VoiceSelectionParams(
             language_code="en-US",
-            ssml_gender=VOICE,
+            ssml_gender=settings.voice,
         )
         audio_config = texttospeech.AudioConfig(
             audio_encoding=texttospeech.AudioEncoding.MP3,
